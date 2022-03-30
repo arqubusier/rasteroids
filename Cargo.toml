@@ -1,0 +1,11 @@
+[package]
+name = "rasteroids"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+sdl2 = { version = "0.35.2", registry = "my-registry" }
+ndarray = { version = "0.15.4", registry = "my-registry" }
+rand = { version = "0.8.4", registry = "my-registry" }
