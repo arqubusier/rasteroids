@@ -27,6 +27,28 @@ struct Entity {
     collision_radius: f64
 }
 
+trait GameObject {
+    fn shift(&mut self, world_x: f64, world_y: f64);
+}
+
+
+impl GameObject for Entity {
+    fn shift(&mut self, world_x: f64, world_y: f64) {
+	move_entity(self, world_x, world_y);
+    }
+}
+
+struct Shot {
+    entity: Entity,
+    time_to_live: u64
+}
+
+impl GameObject for Shot {
+    fn shift(&mut self, world_x: f64, world_y: f64) {
+	move_entity(&mut self.entity, world_x, world_y);
+    }
+}
+
 
 fn translator(deltaX: f64, deltaY: f64) -> FMatrix {
     arr2(&[[1.0, 0.0, 0.0],
@@ -74,9 +96,9 @@ fn move_entity(entity: &mut Entity, world_x: f64, world_y: f64) {
     }
 }
  
-fn move_entities(entities: &mut [Entity], world_x: f64, world_y: f64) {
-    for entity in entities.iter_mut() {
-	move_entity(entity, world_x, world_y);
+fn move_game_objects<T: GameObject>(objects: &mut [T], world_x: f64, world_y: f64) {
+    for object in objects.iter_mut() {
+	object.shift(world_x, world_y);
     }
 }
 
@@ -91,43 +113,69 @@ fn points_ship(ship: &Entity) -> FMatrix {
     points.dot(&rotator(ship.angle)).dot(&translator(ship.position[0], ship.position[1]))
 }
 
-fn points_asteroid(asteroid: &Entity) -> FMatrix {
+fn points_asteroid(asteroid: &Entity, original_radius: f64) -> FMatrix {
     let r = 20.0;
-    let points = arr2(&[[0.0, r, 1.0],
-                        [3.0, r-2.0, 1.0],
-                        [r, 0.0, 1.0],
-                        [10.0, -r, 1.0],
-                        [1.0, -10.0, 1.0],
-                        [3.0, -r, 1.0],
-                        [-15.0, -15.0, 1.0],
-                        [-10.0, 0.0, 1.0],
-                        [-14.0, 11.0, 1.0]]);
+    // Add last column afterwards to prevent its scaling
+    let ones = arr2(&[[0.0, 0.0, 1.0],
+                      [0.0, 0.0, 1.0],
+                      [0.0, 0.0, 1.0],
+                      [0.0, 0.0, 1.0],
+                      [0.0, 0.0, 1.0],
+                      [0.0, 0.0, 1.0],
+                      [0.0, 0.0, 1.0],
+                      [0.0, 0.0, 1.0],
+                      [0.0, 0.0, 1.0]]);
 
-    points.dot(&rotator(asteroid.angle)).dot(&translator(asteroid.position[0], asteroid.position[1]))
+    let points = arr2(&[[0.0, r, 0.0],
+                        [3.0, r-2.0, 0.0],
+                        [r, 0.0, 0.0],
+                        [10.0, -r, 0.0],
+                        [1.0, -10.0, 0.0],
+                        [3.0, -r, 0.0],
+                        [-15.0, -15.0, 0.0],
+                        [-10.0, 0.0, 0.0],
+                        [-14.0, 11.0, 0.0]]);
+
+    let scaled_points = (asteroid.collision_radius/original_radius)*points + ones;
+    //let scaled_points = points;
+    scaled_points.dot(&rotator(asteroid.angle)).dot(&translator(asteroid.position[0], asteroid.position[1]))
 }
 
-fn points_shot(shot: &Entity) -> FMatrix {
-    let l = shot.collision_radius;
-    let points = arr2(&[[0.0,  l, 0.0],
-			[0.0, -l, 0.0]]);
-    points.dot(&rotator(shot.angle)).dot(&translator(shot.position[0], shot.position[1]))
+fn points_shot(shot: &Shot) -> FMatrix {
+    let l = shot.entity.collision_radius;
+    let points = arr2(&[[0.0,  l, 1.0],
+			[0.0, -l, 1.0]]);
+    points.dot(&rotator(shot.entity.angle)).dot(&translator(shot.entity.position[0], shot.entity.position[1]))
 }
 
-fn add_asteroid(asteroids: &mut Vec<Entity>, position: &FVector, velocity: &FVector) {
+fn add_asteroid(asteroids: &mut Vec<Entity>, position: &FVector, velocity: &FVector, collision_radius: f64) {
     let mut rng = rand::thread_rng();
     let new_angle: f64 = rng.gen_range(0.01..1.0);
     let new_angle_speed: f64 = rng.gen_range(-0.2..0.2);
     asteroids.push(Entity {position: position.clone(), velocity: velocity.clone(),
 			   acceleration: 0.0, angle: new_angle, angle_speed: new_angle_speed,
-			   collision_radius: 20.0});
+			   collision_radius: collision_radius});
 }
 
-fn add_shot(ship: &Entity, shots: &mut Vec<Entity>) {
+fn split_asteroid(asteroid: &Entity) -> Vec<Entity> {
+    let mut asteroids: Vec<Entity> = Vec::new();
+    if asteroid.collision_radius >= 9.0 {
+	let new_radius = asteroid.collision_radius / 2.0;
+	for i in 0..4 {
+	  add_asteroid(&mut asteroids, &asteroid.position, &arr1(&[0.0 ,0.2, 1.0]).dot(&rotator(2.0*PI/i as f64)), new_radius);
+	}
+    }
+
+    asteroids
+}
+
+fn add_shot(ship: &Entity, shots: &mut Vec<Shot>) {
+    let shot_speed = 8.0;
     let position =  ship.position.clone() + arr1(&[0.0, ship.collision_radius+5.0, 1.0]).dot(&rotator(ship.angle));
-    let velocity =  arr1(&[0.0, 0.3, 1.0]).dot(&rotator(ship.angle));
-    shots.push(Entity {position: position.clone(), velocity: velocity.clone(),
-		       acceleration: 0.0, angle: ship.angle, angle_speed: 0.0,
-		       collision_radius: 5.0} );
+    let velocity =  arr1(&[0.0, shot_speed, 1.0]).dot(&rotator(ship.angle));
+    shots.push(Shot{ entity: Entity {position: position.clone(), velocity: velocity.clone(),
+			     acceleration: 0.0, angle: ship.angle, angle_speed: 0.0,
+			     collision_radius: 5.0}, time_to_live: 60 } );
 }
 
 fn is_collided(e1: &Entity, e2: &Entity, world_x: f64, world_y: f64) -> bool {
@@ -136,10 +184,6 @@ fn is_collided(e1: &Entity, e2: &Entity, world_x: f64, world_y: f64) -> bool {
 	let delta_y = (p1[1] - p2[1]).abs();
 	let dist_pow = delta_x.powi(2) + delta_y.powi(2);
 
-	println!("XXX");
-	println!("{}", delta_x);
-	println!("{}", delta_y);
-	println!("{}", dist_pow);
 	dist_pow < (collision_radius1.powi(2) + collision_radius2.powi(2))
     }
 
@@ -160,7 +204,7 @@ fn is_collided(e1: &Entity, e2: &Entity, world_x: f64, world_y: f64) -> bool {
 }
  
 pub fn main() {
-    fn handle_event(event: &Event, ship: &mut Entity, shots: &mut Vec<Entity>) -> bool {
+    fn handle_event(event: &Event, ship: &mut Entity, shots: &mut Vec<Shot>) -> bool {
 	let acceleration = 0.10;
 	let turn_speed = 0.1;
 
@@ -226,12 +270,13 @@ pub fn main() {
 			    velocity: arr1(&[0.0, 0.0, 0.0]),
 			    angle: 1.0, acceleration: 0.0, angle_speed: 0.0,
 			    collision_radius: 15.0 };
+    let asteroid_start_radius = 20.0;
     let mut asteroids: Vec<Entity> = Vec::new();
-    let mut shots: Vec<Entity> = Vec::new();
+    let mut shots: Vec<Shot> = Vec::new();
     let v = arr1(&[200.0,200.0,1.0]);
-    add_asteroid(&mut asteroids, &v, &arr1(&[0.0 ,0.2, 1.0]).dot(&rotator(0.0)));
-    add_asteroid(&mut asteroids, &v, &arr1(&[0.0 ,0.3, 1.0]).dot(&rotator(PI/2.0)));
-    add_asteroid(&mut asteroids, &v, &arr1(&[0.0 ,0.4, 1.0]).dot(&rotator(PI)));
+    add_asteroid(&mut asteroids, &v, &arr1(&[0.0 ,0.2, 1.0]).dot(&rotator(0.0)), 10.0);
+    add_asteroid(&mut asteroids, &v, &arr1(&[0.0 ,0.3, 1.0]).dot(&rotator(PI/2.0)), asteroid_start_radius);
+    add_asteroid(&mut asteroids, &v, &arr1(&[0.0 ,0.4, 1.0]).dot(&rotator(PI)), asteroid_start_radius);
 
     'running: loop {
         canvas.set_draw_color(Color::RGB(0, 0, 0));
@@ -243,28 +288,41 @@ pub fn main() {
 	    }
         }
 
-	move_entity(&mut ship, world_x, world_y);
-	move_entities(&mut asteroids, world_x, world_y);
-	move_entities(&mut shots, world_x, world_y);
+	for shot in shots.iter_mut() {
+	    shot.time_to_live -= 1;
+	}
+	shots.retain(|shot| {
+	    shot.time_to_live > 0
+	});
+	ship.shift(world_x, world_y);
+	move_game_objects(&mut asteroids, world_x, world_y);
+	move_game_objects(&mut shots, world_x, world_y);
 
 	for asteroid in asteroids.iter() {
 	    if is_collided(&ship, &asteroid, world_x, world_y) {
 		break 'running;
 	    }
-	    for shot in shots.iter() {
-		if is_collided(&ship, &shot, world_x, world_y) {
-		    println!("HIT");
+	}
+	let mut new_asteroids : Vec<Entity> = Vec::new();
+	asteroids.retain(|asteroid| {
+	    match shots.iter().position(|shot| {is_collided(&asteroid, &shot.entity, world_x, world_y)}) {
+		None => true,
+		Some(index) => {
+		    new_asteroids.append(&mut split_asteroid(asteroid));
+		    shots.swap_remove(index);
+		    false
 		}
 	    }
-	}
+	});
+	asteroids.append(&mut new_asteroids);
+	
 
         canvas.set_draw_color(Color::RGB(255,255,255));
         draw_polygon(&points_ship(&ship), &mut canvas);
 	for asteroid in asteroids.iter() {
-	    draw_polygon(&points_asteroid(&asteroid), &mut canvas);
+	    draw_polygon(&points_asteroid(&asteroid, asteroid_start_radius), &mut canvas);
 	}
 	for shot in shots.iter() {
-	    println!("shot");
 	    draw_polygon(&points_shot(&shot), &mut canvas);
 	}
         canvas.present();
