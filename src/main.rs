@@ -148,13 +148,14 @@ fn points_shot(shot: &Shot) -> FMatrix {
     points.dot(&rotator(shot.entity.angle)).dot(&translator(shot.entity.position[0], shot.entity.position[1]))
 }
 
-fn add_asteroid(asteroids: &mut Vec<Entity>, position: &FVector, velocity: &FVector, collision_radius: f64) {
+fn new_asteroid(position: &FVector, velocity: &FVector, collision_radius: f64) -> Entity {
     let mut rng = rand::thread_rng();
     let new_angle: f64 = rng.gen_range(0.01..1.0);
     let new_angle_speed: f64 = rng.gen_range(-0.2..0.2);
-    asteroids.push(Entity {position: position.clone(), velocity: velocity.clone(),
-			   acceleration: 0.0, angle: new_angle, angle_speed: new_angle_speed,
-			   collision_radius: collision_radius});
+
+    Entity {position: position.clone(), velocity: velocity.clone(),
+	    acceleration: 0.0, angle: new_angle, angle_speed: new_angle_speed,
+	    collision_radius: collision_radius}
 }
 
 fn split_asteroid(asteroid: &Entity) -> Vec<Entity> {
@@ -162,7 +163,7 @@ fn split_asteroid(asteroid: &Entity) -> Vec<Entity> {
     if asteroid.collision_radius >= 9.0 {
 	let new_radius = asteroid.collision_radius / 2.0;
 	for i in 0..4 {
-	  add_asteroid(&mut asteroids, &asteroid.position, &arr1(&[0.0 ,0.2, 1.0]).dot(&rotator(2.0*PI/i as f64)), new_radius);
+	  asteroids.push(new_asteroid(&asteroid.position, &arr1(&[0.0 ,0.2, 1.0]).dot(&rotator(2.0*PI/i as f64)), new_radius));
 	}
     }
 
@@ -170,9 +171,9 @@ fn split_asteroid(asteroid: &Entity) -> Vec<Entity> {
 }
 
 fn add_shot(ship: &Entity, shots: &mut Vec<Shot>) {
-    let shot_speed = 8.0;
+    let shot_speed = 10.0;
     let position =  ship.position.clone() + arr1(&[0.0, ship.collision_radius+5.0, 1.0]).dot(&rotator(ship.angle));
-    let velocity =  arr1(&[0.0, shot_speed, 1.0]).dot(&rotator(ship.angle));
+    let velocity =  ship.velocity.clone() + arr1(&[0.0, shot_speed, 1.0]).dot(&rotator(ship.angle));
     shots.push(Shot{ entity: Entity {position: position.clone(), velocity: velocity.clone(),
 			     acceleration: 0.0, angle: ship.angle, angle_speed: 0.0,
 			     collision_radius: 5.0}, time_to_live: 60 } );
@@ -201,6 +202,32 @@ fn is_collided(e1: &Entity, e2: &Entity, world_x: f64, world_y: f64) -> bool {
 
     is_intersected(&wrapped_position(e1, world_x, world_y), &wrapped_position(e2, world_x, world_y),
 		   e1.collision_radius, e2.collision_radius)
+}
+
+fn starting_asteroids(n: u64, starting_zone: Entity, world_x: f64, world_y: f64) -> Vec<Entity> {
+    let mut rng = rand::thread_rng();
+    let mut i: u64 = 0;
+    let mut asteroids: Vec<Entity> =  Vec::new();
+
+    loop {
+	if i >= n {
+	    break;
+	}
+	let new_x: f64 = rng.gen_range(0.0..world_x as f64);
+	let new_y: f64 = rng.gen_range(0.0..world_y as f64);
+	let new_velocity_x: f64 = rng.gen_range(0.0..1.0);
+	let new_velocity_y: f64 = rng.gen_range(0.0..1.0);
+	let position = arr1(&[new_x, new_y, 1.0]);
+	let velocity = arr1(&[new_velocity_x, new_velocity_y, 1.0]);
+	let mut asteroid = new_asteroid(&position, &velocity, 20.0);
+
+	if !is_collided(&starting_zone, &asteroid, world_x, world_y) {
+	    asteroids.push(asteroid); 
+	    i += 1;
+	}
+    }
+
+    asteroids
 }
  
 pub fn main() {
@@ -252,6 +279,8 @@ pub fn main() {
 
     let world_x: f64 = 800.0;
     let world_y: f64 = 600.0;
+    let start_x: f64 = world_x/2.0;
+    let start_y: f64 = world_y/2.0;
     let window = video_subsystem.window("rust-sdl2 demo", world_x as u32, world_y as u32)
         .position_centered()
         .build()
@@ -266,17 +295,18 @@ pub fn main() {
     let mut event_pump = sdl_context.event_pump().unwrap();
     let mut i = 0;
 
-    let mut ship = Entity { position: arr1(&[400.0, 200.0, 1.0]),
+    let mut ship = Entity { position: arr1(&[start_x, start_y, 1.0]),
 			    velocity: arr1(&[0.0, 0.0, 0.0]),
 			    angle: 1.0, acceleration: 0.0, angle_speed: 0.0,
 			    collision_radius: 15.0 };
     let asteroid_start_radius = 20.0;
-    let mut asteroids: Vec<Entity> = Vec::new();
+    let starting_zone = Entity { position: arr1(&[start_x, start_y, 1.0]),
+				velocity: arr1(&[0.0, 0.0, 0.0]),
+				angle: 1.0, acceleration: 0.0, angle_speed: 0.0,
+				collision_radius: 50.0 };
+    let mut asteroids: Vec<Entity> = starting_asteroids(10, starting_zone, world_x, world_y);
     let mut shots: Vec<Shot> = Vec::new();
     let v = arr1(&[200.0,200.0,1.0]);
-    add_asteroid(&mut asteroids, &v, &arr1(&[0.0 ,0.2, 1.0]).dot(&rotator(0.0)), 10.0);
-    add_asteroid(&mut asteroids, &v, &arr1(&[0.0 ,0.3, 1.0]).dot(&rotator(PI/2.0)), asteroid_start_radius);
-    add_asteroid(&mut asteroids, &v, &arr1(&[0.0 ,0.4, 1.0]).dot(&rotator(PI)), asteroid_start_radius);
 
     'running: loop {
         canvas.set_draw_color(Color::RGB(0, 0, 0));
