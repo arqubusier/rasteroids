@@ -1,6 +1,6 @@
 extern crate sdl2;
  
-
+use sdl2::gfx::framerate::FPSManager;
 use sdl2::pixels::Color;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
@@ -306,6 +306,8 @@ pub fn main() {
 				collision_radius: 50.0 };
     let mut asteroids: Vec<Entity> = starting_asteroids(10, starting_zone, world_x, world_y);
     let mut shots: Vec<Shot> = Vec::new();
+    let mut frame_manager = FPSManager::new();
+    frame_manager.set_framerate(60);
     let v = arr1(&[200.0,200.0,1.0]);
 
     'running: loop {
@@ -357,7 +359,7 @@ pub fn main() {
 	}
         canvas.present();
 
-        ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
+	frame_manager.delay();
     }
 
 }
